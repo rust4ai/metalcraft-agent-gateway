@@ -6,12 +6,10 @@ use axum::{
 };
 
 /// Middleware: verify `Authorization: Bearer <AGENT_GATEWAY_API_KEY>`.
+///
+/// The key is guaranteed to be set at boot (main.rs validates this).
 pub async fn require_api_key(req: Request, next: Next) -> Result<Response, StatusCode> {
     let expected = std::env::var("AGENT_GATEWAY_API_KEY").unwrap_or_default();
-    if expected.is_empty() {
-        // No key configured — allow all requests (dev mode).
-        return Ok(next.run(req).await);
-    }
 
     let header = req
         .headers()

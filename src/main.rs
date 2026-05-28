@@ -17,24 +17,16 @@ use subscribers::SubscriberStore;
 
 pub struct AppState {
     pub platforms: HashMap<String, Box<dyn platform::Platform>>,
-    pub default_platform: Option<String>,
     pub event_tx: broadcast::Sender<GatewayEvent>,
     pub subscriber_store: SubscriberStore,
 }
 
 impl AppState {
-    /// Resolve which platform to use: explicit field > default > error.
-    pub fn resolve(&self, requested: Option<&str>) -> Result<&dyn platform::Platform, platform::PlatformError> {
-        let name = requested
-            .or(self.default_platform.as_deref())
-            .ok_or_else(|| platform::PlatformError {
-                status: 400,
-                message: "No 'platform' field in request and no default PLATFORM configured".into(),
-            })?;
-
-        self.platforms.get(name).map(|b| b.as_ref()).ok_or_else(|| platform::PlatformError {
+    /// Resolve which platform to use from the explicit request field.
+    pub fn resolve(&self, requested: &str) -> Result<&dyn platform::Platform, platform::PlatformError> {
+        self.platforms.get(requested).map(|b| b.as_ref()).ok_or_else(|| platform::PlatformError {
             status: 400,
-            message: format!("Platform '{name}' is not configured (missing token?)"),
+            message: format!("Platform '{requested}' is not configured (missing token?)"),
         })
     }
 }
@@ -67,22 +59,13 @@ async fn main() {
         std::process::exit(1);
     }
 
-    // PLATFORM env var sets the default (used when requests omit the field).
-    let default_platform = std::env::var("PLATFORM").ok().filter(|p| platforms.contains_key(p));
-
-    // If only one platform is configured, default to it automatically.
-    let default_platform = default_platform.or_else(|| {
-        if platforms.len() == 1 {
-            platforms.keys().next().cloned()
-        } else {
-            None
+    // Require AGENT_GATEWAY_API_KEY at boot.
+    match std::env::var("AGENT_GATEWAY_API_KEY") {
+        Ok(key) if !key.is_empty() => {}
+        _ => {
+            tracing::error!("AGENT_GATEWAY_API_KEY is required. Set it to a strong random string.");
+            std::process::exit(1);
         }
-    });
-
-    if let Some(ref dp) = default_platform {
-        tracing::info!("Default platform: {dp}");
-    } else {
-        tracing::info!("No default platform — requests must include 'platform' field");
     }
 
     // Set up broadcast channel for pub/sub events.
@@ -108,7 +91,6 @@ async fn main() {
 
     let state = Arc::new(AppState {
         platforms,
-        default_platform,
         event_tx,
         subscriber_store,
     });
