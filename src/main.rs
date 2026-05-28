@@ -2,12 +2,31 @@ mod auth;
 mod platform;
 mod routes;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use axum::Router;
 use tower_http::trace::TraceLayer;
 
 pub struct AppState {
-    pub platform: Box<dyn platform::Platform>,
+    pub platforms: HashMap<String, Box<dyn platform::Platform>>,
+    pub default_platform: Option<String>,
+}
+
+impl AppState {
+    /// Resolve which platform to use: explicit field > default > error.
+    pub fn resolve(&self, requested: Option<&str>) -> Result<&dyn platform::Platform, platform::PlatformError> {
+        let name = requested
+            .or(self.default_platform.as_deref())
+            .ok_or_else(|| platform::PlatformError {
+                status: 400,
+                message: "No 'platform' field in request and no default PLATFORM configured".into(),
+            })?;
+
+        self.platforms.get(name).map(|b| b.as_ref()).ok_or_else(|| platform::PlatformError {
+            status: 400,
+            message: format!("Platform '{name}' is not configured (missing token?)"),
+        })
+    }
 }
 
 #[tokio::main]
@@ -21,21 +40,45 @@ async fn main() {
         )
         .init();
 
-    let platform_name =
-        std::env::var("PLATFORM").unwrap_or_else(|_| "discord".into());
+    let mut platforms: HashMap<String, Box<dyn platform::Platform>> = HashMap::new();
 
-    let platform: Box<dyn platform::Platform> = match platform_name.as_str() {
-        "discord" => Box::new(platform::discord::Discord::from_env()),
-        "slack" => Box::new(platform::slack::Slack::from_env()),
-        other => {
-            tracing::error!("Unknown PLATFORM={other}, expected 'discord' or 'slack'");
-            std::process::exit(1);
+    // Register each platform whose token is present.
+    if std::env::var("DISCORD_BOT_TOKEN").is_ok() {
+        tracing::info!("Discord platform enabled");
+        platforms.insert("discord".into(), Box::new(platform::discord::Discord::from_env()));
+    }
+    if std::env::var("SLACK_BOT_TOKEN").is_ok() {
+        tracing::info!("Slack platform enabled");
+        platforms.insert("slack".into(), Box::new(platform::slack::Slack::from_env()));
+    }
+
+    if platforms.is_empty() {
+        tracing::error!("No platform tokens configured. Set DISCORD_BOT_TOKEN and/or SLACK_BOT_TOKEN.");
+        std::process::exit(1);
+    }
+
+    // PLATFORM env var sets the default (used when requests omit the field).
+    let default_platform = std::env::var("PLATFORM").ok().filter(|p| platforms.contains_key(p));
+
+    // If only one platform is configured, default to it automatically.
+    let default_platform = default_platform.or_else(|| {
+        if platforms.len() == 1 {
+            platforms.keys().next().cloned()
+        } else {
+            None
         }
-    };
+    });
 
-    tracing::info!("Starting gateway with platform={platform_name}");
+    if let Some(ref dp) = default_platform {
+        tracing::info!("Default platform: {dp}");
+    } else {
+        tracing::info!("No default platform — requests must include 'platform' field");
+    }
 
-    let state = Arc::new(AppState { platform });
+    let state = Arc::new(AppState {
+        platforms,
+        default_platform,
+    });
 
     let app = Router::new()
         .nest("/api/v1", routes::router())

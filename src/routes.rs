@@ -46,22 +46,22 @@ struct SendMessageBody {
     channel_id: String,
     content: String,
     message_reference_id: Option<String>,
+    platform: Option<String>,
 }
 
 async fn send_message(
     State(state): State<S>,
     Json(body): Json<SendMessageBody>,
 ) -> Result<Json<Value>, impl IntoResponse> {
-    state
-        .platform
-        .send_message(
-            &body.channel_id,
-            &body.content,
-            body.message_reference_id.as_deref(),
-        )
-        .await
-        .map(Json)
-        .map_err(platform_err)
+    let p = state.resolve(body.platform.as_deref()).map_err(platform_err)?;
+    p.send_message(
+        &body.channel_id,
+        &body.content,
+        body.message_reference_id.as_deref(),
+    )
+    .await
+    .map(Json)
+    .map_err(platform_err)
 }
 
 // ── PATCH /messages/:message_id ─────────────────────────────────────────
@@ -70,6 +70,7 @@ async fn send_message(
 struct EditMessageBody {
     channel_id: String,
     content: String,
+    platform: Option<String>,
 }
 
 async fn edit_message(
@@ -77,9 +78,8 @@ async fn edit_message(
     Path(message_id): Path<String>,
     Json(body): Json<EditMessageBody>,
 ) -> Result<Json<Value>, impl IntoResponse> {
-    state
-        .platform
-        .edit_message(&body.channel_id, &message_id, &body.content)
+    let p = state.resolve(body.platform.as_deref()).map_err(platform_err)?;
+    p.edit_message(&body.channel_id, &message_id, &body.content)
         .await
         .map(Json)
         .map_err(platform_err)
@@ -91,6 +91,7 @@ async fn edit_message(
 struct AddReactionBody {
     channel_id: String,
     emoji: String,
+    platform: Option<String>,
 }
 
 async fn add_reaction(
@@ -98,19 +99,19 @@ async fn add_reaction(
     Path(message_id): Path<String>,
     Json(body): Json<AddReactionBody>,
 ) -> Result<Json<Value>, impl IntoResponse> {
-    state
-        .platform
-        .add_reaction(&body.channel_id, &message_id, &body.emoji)
+    let p = state.resolve(body.platform.as_deref()).map_err(platform_err)?;
+    p.add_reaction(&body.channel_id, &message_id, &body.emoji)
         .await
         .map(Json)
         .map_err(platform_err)
 }
 
-// ── GET /channels/:channel_id/messages?limit=N ──────────────────────────
+// ── GET /channels/:channel_id/messages?limit=N&platform=X ───────────────
 
 #[derive(Deserialize)]
 struct GetMessagesQuery {
     limit: Option<u64>,
+    platform: Option<String>,
 }
 
 async fn get_messages(
@@ -118,24 +119,28 @@ async fn get_messages(
     Path(channel_id): Path<String>,
     Query(q): Query<GetMessagesQuery>,
 ) -> Result<Json<Value>, impl IntoResponse> {
+    let p = state.resolve(q.platform.as_deref()).map_err(platform_err)?;
     let limit = q.limit.unwrap_or(10).min(50);
-    state
-        .platform
-        .get_messages(&channel_id, limit)
+    p.get_messages(&channel_id, limit)
         .await
         .map(Json)
         .map_err(platform_err)
 }
 
-// ── GET /channels/:channel_id ───────────────────────────────────────────
+// ── GET /channels/:channel_id?platform=X ────────────────────────────────
+
+#[derive(Deserialize)]
+struct ChannelInfoQuery {
+    platform: Option<String>,
+}
 
 async fn get_channel_info(
     State(state): State<S>,
     Path(channel_id): Path<String>,
+    Query(q): Query<ChannelInfoQuery>,
 ) -> Result<Json<Value>, impl IntoResponse> {
-    state
-        .platform
-        .get_channel_info(&channel_id)
+    let p = state.resolve(q.platform.as_deref()).map_err(platform_err)?;
+    p.get_channel_info(&channel_id)
         .await
         .map(Json)
         .map_err(platform_err)
