@@ -1,7 +1,7 @@
 [package]
 name = "metalcraft-agent-gateway"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "Platform-agnostic messaging gateway for metalcraft-agent. Translates a uniform HTTP API into Discord, Slack, and other platform-specific calls."
 license = "MIT"
 repository = "https://github.com/ethereumdegen/metalcraft-agent-gateway"
