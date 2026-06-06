@@ -1,5 +1,6 @@
 pub mod discord;
 pub mod slack;
+pub mod whatsapp;
 
 use async_trait::async_trait;
 use serde_json::Value;

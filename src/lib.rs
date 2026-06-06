@@ -58,6 +58,10 @@ pub async fn run() {
         tracing::info!("Slack platform enabled");
         platforms.insert("slack".into(), Box::new(platform::slack::Slack::from_env()));
     }
+    if std::env::var("TWILIO_ACCOUNT_SID").is_ok() {
+        tracing::info!("WhatsApp (Twilio) platform enabled");
+        platforms.insert("whatsapp".into(), Box::new(platform::whatsapp::WhatsApp::from_env()));
+    }
 
     if platforms.is_empty() {
         tracing::error!("No platform tokens configured. Set DISCORD_BOT_TOKEN and/or SLACK_BOT_TOKEN.");
